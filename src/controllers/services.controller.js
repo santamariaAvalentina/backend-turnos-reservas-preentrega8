@@ -1,3 +1,4 @@
+
 import { ServicesService } from "../services/services.service.js";
 
 const servicesService = new ServicesService();
@@ -5,9 +6,12 @@ const servicesService = new ServicesService();
 export default class ServiceController {
   async getServices(req, res) {
     try {
-      const services = await servicesService.getServices(req.query);
+      const result = await servicesService.getServices(req.query);
 
-      res.json(services);
+      res.json({
+        status: "success",
+        ...result,
+      });
     } catch (error) {
       res.status(500).json({
         error: "Error al obtener los servicios",
@@ -34,6 +38,7 @@ export default class ServiceController {
       });
     }
   }
+
   async createService(req, res) {
     try {
       const newService = await servicesService.createService(req.body);
@@ -49,6 +54,7 @@ export default class ServiceController {
       });
     }
   }
+
   async updateService(req, res) {
     try {
       const { id } = req.params;
@@ -59,7 +65,10 @@ export default class ServiceController {
         });
       }
 
-      const updatedService = await servicesService.updateService(id, req.body);
+      const updatedService = await servicesService.updateService(
+        id,
+        req.body
+      );
 
       if (!updatedService) {
         return res.status(404).json({

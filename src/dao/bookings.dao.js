@@ -1,12 +1,15 @@
-import {BookingModel} from "./models/booking.model.js";
+import { BookingModel } from "./models/booking.model.js";
+
 export class BookingsDAO {
 
     async getAll() {
-        return await BookingModel.find().lean();   
+        return await BookingModel.find().lean();
     }
 
     async getById(id) {
-        return await BookingModel.findById(id).lean();
+        return await BookingModel.findById(id)
+            .populate("services.service")
+            .lean();
     }
 
     async create(booking) {

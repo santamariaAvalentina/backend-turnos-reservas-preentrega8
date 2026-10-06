@@ -4,22 +4,7 @@ const servicesRepository = new ServicesRepository();
 
 export class ServicesService {
   async getServices(filters = {}) {
-    let result = await servicesRepository.getAll();
-
-    if (filters.category) {
-      result = result.filter(
-        (service) =>
-          service.category.toLowerCase() === filters.category.toLowerCase(),
-      );
-    }
-
-    if (filters.available) {
-      result = result.filter(
-        (service) => service.available === (filters.available === "true"),
-      );
-    }
-    
-    return result;
+    return await servicesRepository.getAll(filters);
   }
 
   async getServiceById(id) {
@@ -27,30 +12,7 @@ export class ServicesService {
   }
 
   async createService(serviceData) {
-
-    const { name, description, duration, price, category } =
-      serviceData;
-
-    if (
-      !name ||
-      !description ||
-      !duration ||
-      !price ||
-      !category 
-    ) {
-      throw new Error(
-        "Todos los campos del servicio son obligatorios (name, description, duration, price, category)",
-      );
-    }
-    const newService = {
-      name,
-      description,
-      duration,
-      price,
-      category,
-    };
-
-    return await servicesRepository.create(newService);
+    return await servicesRepository.create(serviceData);
   }
 
   async updateService(id, updatedData) {

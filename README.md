@@ -6,10 +6,12 @@ El proyecto implementa una API REST organizada mediante una arquitectura en capa
 
 * **Routes:** definición de endpoints.
 * **Controllers:** recepción de requests y envío de responses.
-* **Services:** lógica de negocio y validaciones.
+* **Services:** lógica de negocio.
 * **Repositories:** intermediarios entre los Services y los DAO.
 * **DAO:** acceso directo y persistencia de datos.
 * **MongoDB:** almacenamiento de la información.
+* **Mongoose:** ODM utilizado para trabajar con MongoDB.
+* **Zod:** validación de los datos recibidos por la API.
 * **Handlebars:** generación de vistas del lado del servidor.
 * **Socket.io:** comunicación en tiempo real entre el servidor y los clientes.
 
@@ -27,13 +29,16 @@ La aplicación permite:
 * Buscar servicios por ID.
 * Filtrar servicios por categoría.
 * Filtrar servicios según disponibilidad.
+* Paginar los resultados de servicios.
+* Ordenar los servicios.
 * Crear nuevos servicios.
 * Modificar servicios existentes.
 * Eliminar servicios.
+* Validar los datos recibidos antes de acceder a MongoDB.
 * Crear reservas.
 * Consultar reservas por ID.
-* Consultar las reservas existentes mediante una vista.
 * Agregar servicios a una reserva.
+* Consultar una reserva con sus servicios mediante `populate`.
 * Crear y consultar mensajes.
 * Mostrar los servicios mediante vistas desarrolladas con Handlebars.
 * Mostrar las reservas mediante vistas desarrolladas con Handlebars.
@@ -67,6 +72,8 @@ MongoDB Atlas
 
 Los routers se encargan de definir los endpoints y conectarlos con los métodos correspondientes de los Controllers.
 
+También incorporan los middlewares de validación cuando corresponde.
+
 No contienen lógica de negocio ni acceso directo a MongoDB.
 
 ## Controllers
@@ -87,11 +94,11 @@ Los Services contienen la lógica de negocio de la aplicación.
 
 Entre sus responsabilidades se encuentran:
 
-* Validar los datos recibidos.
-* Aplicar filtros.
 * Comprobar la existencia de entidades.
 * Aplicar reglas de negocio.
 * Coordinar las operaciones mediante los Repositories.
+
+Las validaciones de formato y estructura de los datos se realizan mediante middlewares específicos con Zod antes de llegar a esta capa.
 
 Los Services no utilizan `req` ni `res` y no acceden directamente a MongoDB.
 
@@ -114,8 +121,89 @@ Son responsables de realizar operaciones de persistencia como:
 * Crear documentos.
 * Actualizar documentos.
 * Eliminar documentos.
+* Aplicar filtros, paginación y ordenamiento en las consultas correspondientes.
+* Utilizar `populate` para obtener información relacionada.
 
-Los DAO no contienen reglas de negocio ni utilizan `req` o `res`.
+Los DAO no utilizan `req` o `res`.
+
+---
+
+# ✅ Validación de datos con Zod
+
+El proyecto utiliza **Zod** para validar los datos recibidos por la API.
+
+Las validaciones se encuentran separadas de las rutas y modelos, utilizando schemas y middlewares específicos.
+
+El flujo es:
+
+```text
+Request
+   ↓
+Validation Middleware
+   ↓
+¿Datos válidos?
+   ↓
+Controller
+   ↓
+Service
+   ↓
+Repository
+   ↓
+DAO
+   ↓
+MongoDB
+```
+
+De esta manera, los datos inválidos son rechazados antes de llegar a MongoDB.
+
+## Servicios
+
+Se valida la información utilizada para:
+
+* Crear un servicio.
+* Actualizar un servicio.
+
+Se controlan campos como:
+
+* `name`
+* `description`
+* `duration`
+* `price`
+* `category`
+* `available`
+
+Además:
+
+* `duration` debe ser mayor que cero.
+* `price` no puede ser negativo.
+* `available` es opcional.
+
+## Reservas
+
+Se valida la información utilizada para crear una reserva:
+
+* `clientName`
+* `clientEmail`
+* `date`
+* `time`
+* `status`
+
+El email debe tener un formato válido.
+
+## Agregar servicios a una reserva
+
+También se validan los parámetros utilizados para:
+
+```text
+POST /api/bookings/:bid/services/:sid
+```
+
+Se validan:
+
+* `bid`
+* `sid`
+
+Las validaciones inválidas devuelven una respuesta `400 Bad Request`.
 
 ---
 
@@ -170,8 +258,6 @@ Ruta:
 GET /views/bookings
 ```
 
-La información mostrada se obtiene directamente desde la base de datos mediante las capas de la aplicación.
-
 ## Detalle de servicio
 
 También se dispone de una vista para consultar el detalle de un servicio:
@@ -214,11 +300,7 @@ Se implementó un evento llamado:
 servicesUpdated
 ```
 
-Cuando se crea un nuevo servicio mediante la API REST, el servidor obtiene nuevamente la lista de servicios y emite el evento:
-
-```text
-servicesUpdated
-```
+Cuando se crea un nuevo servicio mediante la API REST, el servidor obtiene nuevamente los servicios y emite el evento `servicesUpdated`.
 
 El navegador escucha este evento mediante:
 
@@ -227,8 +309,6 @@ socket.on("servicesUpdated", ...)
 ```
 
 Cuando recibe los nuevos datos, actualiza la vista de servicios sin necesidad de recargar manualmente la página.
-
-De esta manera, una acción realizada mediante la API REST puede reflejarse inmediatamente en la vista del navegador.
 
 ---
 
@@ -241,8 +321,6 @@ public/css/styles.css
 ```
 
 Los estilos utilizan **Flexbox** para organizar las tarjetas de servicios y reservas de forma responsive.
-
-Las tarjetas se reorganizan automáticamente dependiendo del tamaño disponible de la pantalla.
 
 ---
 
@@ -266,18 +344,37 @@ messages
 
 Los documentos utilizan un identificador `_id` generado por MongoDB/Mongoose.
 
-En las reservas, los servicios asociados se almacenan mediante referencias `ObjectId`:
+## Relación entre reservas y servicios
+
+En las reservas, los servicios asociados se almacenan mediante referencias `ObjectId`.
+
+La estructura utilizada es:
 
 ```text
 services
-
-    ↓
-
+   ↓
 service: ObjectId
 quantity: Number
 ```
 
-Esto permite mantener la relación entre una reserva y los servicios existentes sin duplicar toda la información del servicio dentro de la reserva.
+Por ejemplo:
+
+```json
+{
+  "service": "6abc50b79689e9c3591a1a81",
+  "quantity": 1
+}
+```
+
+No se guarda el objeto completo del servicio dentro de la reserva.
+
+Para consultar una reserva junto con la información completa de sus servicios se utiliza Mongoose `populate`:
+
+```javascript
+.populate("services.service")
+```
+
+De esta manera, la referencia almacenada en MongoDB se completa al realizar la consulta.
 
 ---
 
@@ -290,12 +387,13 @@ Esto permite mantener la relación entre una reserva y los servicios existentes 
 * **Mongoose**
 * **MongoDB Atlas**
 * **dotenv**
+* **Zod**
 * **Handlebars**
 * **express-handlebars**
 * **Socket.io**
 * **HTML**
 * **CSS**
-* **Postman** para realizar pruebas de los endpoints.
+* **Postman**
 
 ---
 
@@ -323,6 +421,13 @@ backend-turnos-reservas/
 │   │   ├── bookings.controller.js
 │   │   ├── messages.controller.js
 │   │   └── views.controller.js
+│   │
+│   ├── middlewares/
+│   │   └── validation.middleware.js
+│   │
+│   ├── validations/
+│   │   ├── service.validation.js
+│   │   └── booking.validation.js
 │   │
 │   ├── services/
 │   │   ├── services.service.js
@@ -396,31 +501,40 @@ De esta manera, la incorporación de las vistas no reemplaza ni modifica la API 
 
 # 🦷 Services
 
-## 📋 GET - Obtener todos los servicios
+## 📋 GET - Obtener servicios
 
 ```http
 GET /api/services
 ```
 
-Devuelve la lista de servicios almacenados en MongoDB.
+Permite consultar los servicios almacenados en MongoDB.
+
+La respuesta incluye la lista de servicios y metadatos de paginación.
+
+Ejemplo de respuesta:
+
+```json
+{
+  "status": "success",
+  "services": [],
+  "total": 7,
+  "page": 1,
+  "limit": 10,
+  "totalPages": 1,
+  "hasPrevPage": false,
+  "hasNextPage": false
+}
+```
 
 ---
 
 ## 🔎 GET - Filtrar servicios por categoría
 
 ```http
-GET /api/services?category=nombreCategoria
+GET /api/services?category=Odontología
 ```
 
 Permite obtener únicamente los servicios pertenecientes a una determinada categoría.
-
-El filtro no distingue entre mayúsculas y minúsculas.
-
-Ejemplo:
-
-```http
-GET /api/services?category=odontología
-```
 
 ---
 
@@ -430,12 +544,72 @@ GET /api/services?category=odontología
 GET /api/services?available=true
 ```
 
-Permite obtener los servicios según su disponibilidad.
+Permite obtener los servicios disponibles.
 
 También se pueden consultar los servicios no disponibles:
 
 ```http
 GET /api/services?available=false
+```
+
+---
+
+## 📄 GET - Paginación
+
+Los resultados pueden paginarse mediante los parámetros:
+
+* `page`
+* `limit`
+
+Ejemplo:
+
+```http
+GET /api/services?page=1&limit=3
+```
+
+La respuesta incluye:
+
+* `total`
+* `page`
+* `limit`
+* `totalPages`
+* `hasPrevPage`
+* `hasNextPage`
+
+Por ejemplo:
+
+```json
+{
+  "status": "success",
+  "services": [],
+  "total": 7,
+  "page": 1,
+  "limit": 3,
+  "totalPages": 3,
+  "hasPrevPage": false,
+  "hasNextPage": true
+}
+```
+
+---
+
+## ↕️ GET - Ordenar servicios
+
+Los servicios pueden ordenarse utilizando:
+
+* `sortBy`: campo por el cual ordenar.
+* `order`: `asc` o `desc`.
+
+Ejemplo para ordenar por precio de menor a mayor:
+
+```http
+GET /api/services?sortBy=price&order=asc
+```
+
+Ejemplo para ordenar por precio de mayor a menor:
+
+```http
+GET /api/services?sortBy=price&order=desc
 ```
 
 ---
@@ -479,7 +653,9 @@ Ejemplo:
 }
 ```
 
-El campo `available` tiene un valor predeterminado de `true` cuando no se especifica.
+El campo `available` es opcional y posee un valor predeterminado de `true` en el modelo cuando no se especifica.
+
+Los datos son validados mediante Zod antes de llegar a MongoDB.
 
 Si la creación es correcta, la API responde:
 
@@ -487,9 +663,7 @@ Si la creación es correcta, la API responde:
 201 Created
 ```
 
-MongoDB/Mongoose genera automáticamente el `_id` del documento.
-
-Además, al crear un servicio se emite el evento `servicesUpdated` mediante Socket.io para actualizar las vistas conectadas en tiempo real.
+Además, al crear un servicio se emite el evento `servicesUpdated` mediante Socket.io.
 
 ---
 
@@ -501,15 +675,15 @@ PUT /api/services/:sid
 
 Permite modificar los datos de un servicio existente utilizando su ID.
 
-Los datos actualizados se envían mediante el body en formato JSON.
+Los datos actualizados se envían mediante el body en formato JSON y son validados mediante Zod.
 
-Si no se envía un body, la API responde:
+Si los datos son inválidos:
 
 ```text
 400 Bad Request
 ```
 
-Si el servicio no existe, la API devuelve:
+Si el servicio no existe:
 
 ```text
 404 Not Found
@@ -545,11 +719,23 @@ POST /api/bookings
 
 Permite crear una nueva reserva.
 
-Los datos se envían mediante el body de la petición en formato JSON.
+Ejemplo:
+
+```json
+{
+  "clientName": "Valentina",
+  "clientEmail": "vale@example.com",
+  "date": "2026-10-05",
+  "time": "10:00",
+  "status": "pending"
+}
+```
+
+Los datos son validados mediante Zod antes de llegar a MongoDB.
 
 Al crear una reserva, el campo `services` se inicializa como un array vacío.
 
-Si la creación es correcta, la API responde:
+Si la creación es correcta:
 
 ```text
 201 Created
@@ -565,7 +751,36 @@ GET /api/bookings/:bid
 
 Permite consultar una reserva específica utilizando su identificador de MongoDB.
 
-Si la reserva no existe, la API devuelve:
+La consulta utiliza `populate` para obtener la información completa de los servicios asociados a la reserva.
+
+Ejemplo:
+
+```json
+{
+  "_id": "6ac5739c72ce574b1402e70a",
+  "clientName": "Valentina",
+  "clientEmail": "vale@example.com",
+  "date": "2026-10-05",
+  "time": "10:00",
+  "status": "pending",
+  "services": [
+    {
+      "service": {
+        "_id": "6abc50b79689e9c3591a1a81",
+        "name": "Blanqueamiento dental",
+        "description": "Tratamiento de blanqueamiento dental",
+        "duration": 60,
+        "price": 25000,
+        "category": "Odontología",
+        "available": true
+      },
+      "quantity": 1
+    }
+  ]
+}
+```
+
+Si la reserva no existe:
 
 ```text
 404 Not Found
@@ -581,27 +796,35 @@ POST /api/bookings/:bid/services/:sid
 
 Permite agregar un servicio existente a una reserva.
 
+Los identificadores se reciben mediante los parámetros de la URL.
+
+Ejemplo:
+
+```http
+POST /api/bookings/ID_DE_RESERVA/services/ID_DE_SERVICIO
+```
+
 Antes de agregar el servicio se comprueba:
 
 1. Que la reserva exista.
 2. Que el servicio exista.
 
+Los parámetros `bid` y `sid` son validados mediante Zod antes de ejecutar la operación.
+
 Si ambas entidades existen, el servicio se agrega a la reserva.
 
-Si el mismo servicio ya se encuentra agregado, se incrementa su cantidad.
+Si el mismo servicio ya se encuentra agregado, se incrementa su `quantity`.
 
-Ejemplo:
+La relación se almacena utilizando un `ObjectId`:
 
 ```json
 {
-  "service": "6ab9a6f2c7ee1d10094f5922",
-  "quantity": 2
+  "service": "6abc50b79689e9c3591a1a81",
+  "quantity": 1
 }
 ```
 
-La relación entre la reserva y el servicio utiliza un `ObjectId`.
-
-Esta regla de negocio se encuentra implementada en `bookings.service.js`.
+El objeto completo del servicio no se duplica dentro de la reserva.
 
 ---
 
@@ -625,7 +848,7 @@ GET /api/messages/:id
 
 Permite obtener un mensaje específico utilizando su identificador.
 
-Si el mensaje no existe, la API devuelve:
+Si el mensaje no existe:
 
 ```text
 404 Not Found
@@ -641,8 +864,6 @@ POST /api/messages
 
 Permite crear un nuevo mensaje.
 
-Los datos se envían mediante el body de la petición en formato JSON.
-
 Ejemplo:
 
 ```json
@@ -652,7 +873,7 @@ Ejemplo:
 }
 ```
 
-Si la creación es correcta, la API responde:
+Si la creación es correcta:
 
 ```text
 201 Created
@@ -670,9 +891,7 @@ Se debe crear un archivo `.env` en la raíz del proyecto:
 
 ```env
 PORT=8080
-
 NODE_ENV=development
-
 MONGO_URI=tu_uri_de_mongodb
 ```
 
@@ -680,9 +899,7 @@ También se incluye un archivo `.env.example` como referencia:
 
 ```env
 PORT=
-
 NODE_ENV=
-
 MONGO_URI=
 ```
 
@@ -714,13 +931,10 @@ Iniciar el servidor:
 npm start
 ```
 
-Si la conexión es correcta, se mostrará un mensaje indicando que la conexión a la base de datos fue establecida y que el servidor está escuchando en el puerto configurado.
-
-Ejemplo:
+Si la conexión es correcta, se mostrará:
 
 ```text
 Conexión a la base de datos establecida
-
 Servidor escuchando en el puerto 8080
 ```
 
@@ -752,27 +966,32 @@ Se realizaron pruebas sobre:
 * GET de un ID inexistente.
 * Filtrado por categoría.
 * Filtrado por disponibilidad.
+* Paginación.
+* Ordenamiento por precio.
 * POST para crear servicios.
 * Validación de campos obligatorios.
+* Validación de tipos de datos.
 * PUT para actualizar servicios.
 * PUT sin body.
 * DELETE de servicios.
 * DELETE de un ID inexistente.
 * GET posterior a un DELETE para comprobar la eliminación.
-
-Además, se comprobó la actualización en tiempo real de la vista mediante Socket.io al crear nuevos servicios.
+* Actualización en tiempo real de la vista mediante Socket.io.
 
 ## Bookings
 
 Se realizaron pruebas sobre:
 
 * POST para crear reservas.
+* Validación de los datos de una reserva.
 * GET de reservas por ID.
 * GET de reservas inexistentes.
 * POST para agregar servicios a una reserva.
+* Validación de los parámetros de la URL.
 * Agregar nuevamente un servicio existente y comprobar el incremento de `quantity`.
 * Validación de reserva inexistente.
 * Validación de servicio inexistente.
+* Consulta de reservas utilizando `populate`.
 * Visualización de reservas mediante Handlebars.
 
 ## Messages
@@ -803,6 +1022,10 @@ ODM utilizado para trabajar con MongoDB desde Node.js, definir Schemas y Models 
 
 Paquete utilizado para cargar las variables de entorno definidas en el archivo `.env`.
 
+### Zod
+
+Biblioteca utilizada para validar la estructura y los tipos de datos recibidos por la API antes de realizar operaciones sobre MongoDB.
+
 ### express-handlebars
 
 Motor de vistas utilizado para generar páginas HTML dinámicas desde el servidor.
@@ -830,18 +1053,25 @@ Durante el desarrollo del proyecto se trabajaron conceptos de:
 * Models
 * ObjectId
 * Referencias entre documentos
+* `populate`
 * Routing
 * API REST
 * Métodos HTTP
 * CRUD
 * Query parameters
 * Route parameters
+* Filtros
+* Paginación
+* Ordenamiento
 * Controllers
 * Services
 * Repositories
 * DAO
 * Arquitectura en capas
 * Separación de responsabilidades
+* Zod
+* Schemas de validación
+* Middlewares
 * Validación de datos
 * Manejo de errores
 * Clases y métodos
@@ -862,6 +1092,6 @@ Durante el desarrollo del proyecto se trabajaron conceptos de:
 
 # 👩‍💻 Autor
 
-**Valentina Santamaria**
+** Andrea Valentina Santamaria**
 
 Proyecto desarrollado como parte del curso **Backend 1 - Coderhouse**.
