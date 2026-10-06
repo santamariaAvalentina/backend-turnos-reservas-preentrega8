@@ -7,9 +7,9 @@ const bookingsService = new BookingsService();
 export default class ViewsController {
   async getServicesView(req, res) {
     try {
-      const services = await servicesService.getServices();
+      const result = await servicesService.getServices();
 
-      res.render("services", { services });
+      res.render("services", { services: result.services });
     } catch (error) {
       res.status(500).send("Error al cargar los servicios");
     }
@@ -33,9 +33,9 @@ export default class ViewsController {
 
   async getRealtimeServicesView(req, res) {
     try {
-      const services = await servicesService.getServices();
+      const result = await servicesService.getServices();
 
-      res.render("realtime-services", { services });
+      res.render("realtime-services", { services: result.services });
     } catch (error) {
       res.status(500).send("Error al cargar los servicios");
     }
@@ -56,6 +56,7 @@ export default class ViewsController {
       res.status(500).send("Error al cargar la reserva");
     }
   }
+
   async getBookingsView(req, res) {
     try {
       const bookings = await bookingsService.getBookings();
