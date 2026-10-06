@@ -43,9 +43,9 @@ export default class ServiceController {
     try {
       const newService = await servicesService.createService(req.body);
 
-      const services = await servicesService.getServices({});
+      const result = await servicesService.getServices({});
 
-      req.app.io.emit("servicesUpdated", services);
+      req.app.io.emit("servicesUpdated", result.services);
 
       res.status(201).json(newService);
     } catch (error) {
@@ -107,3 +107,4 @@ export default class ServiceController {
     }
   }
 }
+
