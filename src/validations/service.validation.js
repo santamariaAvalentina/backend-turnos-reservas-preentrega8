@@ -8,3 +8,4 @@ export const serviceSchema = z.object({
   category: z.string().min(1, "La categoría es obligatoria"),
   available: z.boolean().optional(),
 });
+export const updateServiceSchema = serviceSchema.partial();

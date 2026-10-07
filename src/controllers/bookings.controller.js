@@ -14,6 +14,17 @@ export default class BookingController {
       });
     }
   }
+  async getBookings(req, res) {
+  try {
+    const bookings = await bookingsService.getBookings();
+
+    res.json(bookings);
+  } catch (error) {
+    res.status(500).json({
+      error: "Error al obtener las reservas",
+    });
+  }
+}
   async getBookingById(req, res) {
     try {
       const { id } = req.params;
